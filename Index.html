@@ -43,6 +43,10 @@
             position: absolute;
             font-size: 16px;
             z-index: 10;
+            border: 1px solid #000;
+            background: white;
+            padding: 5px;
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
         }
         .eraser-cursor {
             cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="10" fill="none" stroke="black" stroke-width="2"/></svg>') 10 10, auto;
@@ -61,6 +65,7 @@
         <button onclick="highlighterMode()">Highlighter (Yellow)</button>
         <button onclick="eraserMode()">Eraser</button>
         <button onclick="textMode()">Text</button>
+        <button onclick="undo()">Undo</button>
         
         <select id="size" onchange="changeSize(this.value)">
             <option value="2">Small (2px)</option>
@@ -102,6 +107,7 @@
         let textPos = null;
         const eraserSize = 20;
         let points = [];
+        let history = [];
 
         // Load the site map image
         img.onload = function() {
@@ -116,7 +122,6 @@
                 canvasWidth = maxHeight * imgRatio;
             }
 
-            // Set container size to match canvas
             canvasContainer.style.width = `${canvasWidth}px`;
             canvasContainer.style.height = `${canvasHeight}px`;
             canvas.width = canvasWidth;
@@ -124,6 +129,7 @@
             annotationCanvas.width = canvasWidth;
             annotationCanvas.height = canvasHeight;
             ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+            saveState();
         };
 
         // Handle image load errors
@@ -131,6 +137,26 @@
             console.error("Failed to load image. Ensure the image URL is correct and accessible.");
             alert("Failed to load the site map image. Please check the image URL or host it locally.");
         };
+
+        // Save canvas state for undo
+        function saveState() {
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = annotationCanvas.width;
+            tempCanvas.height = annotationCanvas.height;
+            tempCanvas.getContext('2d').drawImage(annotationCanvas, 0, 0);
+            history.push(tempCanvas);
+            if (history.length > 50) history.shift();
+        }
+
+        // Undo function
+        function undo() {
+            if (history.length > 1) {
+                history.pop();
+                const lastState = history[history.length - 1];
+                annotationCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+                annotationCtx.drawImage(lastState, 0, 0);
+            }
+        }
 
         // Tool functions
         function changeColor(newColor) {
@@ -222,11 +248,17 @@
         });
 
         annotationCanvas.addEventListener('mouseup', () => {
+            if (drawing && mode !== 'text') {
+                saveState();
+            }
             drawing = false;
             points = [];
         });
 
         annotationCanvas.addEventListener('mouseleave', () => {
+            if (drawing && mode !== 'text') {
+                saveState();
+            }
             drawing = false;
             points = [];
         });
@@ -244,10 +276,14 @@
         // Text input handling
         textInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && textPos) {
-                annotationCtx.font = `${fontSize}px Arial`;
-                annotationCtx.fillStyle = color;
-                annotationCtx.globalAlpha = alpha;
-                annotationCtx.fillText(textInput.value, textPos.x, textPos.y);
+                const text = textInput.value.trim();
+                if (text) {
+                    annotationCtx.font = `${fontSize}px Arial`;
+                    annotationCtx.fillStyle = '#ffffff'; // Always white for text
+                    annotationCtx.globalAlpha = 1; // Full opacity for text
+                    annotationCtx.fillText(text, textPos.x, textPos.y);
+                    saveState();
+                }
                 textInput.value = '';
                 textInput.style.display = 'none';
                 textPos = null;
