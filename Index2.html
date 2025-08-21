@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Map Drawer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        #canvas-container {
+            position: relative;
+            display: inline-block;
+            max-width: 90vw;
+            max-height: 80vh;
+            width: 800px; /* Fallback width */
+            height: 600px; /* Fallback height */
+        }
+        #canvas, #annotationCanvas {
+            border: 1px solid #000;
+            max-width: 100%;
+            max-height: 100%;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        #tools {
+            margin: 20px 0;
+            z-index: 10;
+            position: relative;
+        }
+        button, select, input {
+            margin: 5px;
+            padding: 8px 12px;
+            font-size: 14px;
+        }
+        #textInput {
+            display: none;
+            position: absolute;
+            font-size: 16px;
+            z-index: 10;
+        }
+        .eraser-cursor {
+            cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="10" fill="none" stroke="black" stroke-width="2"/></svg>') 10 10, auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>EHS Site Navigation Tool</h1>
+    <p>Draw on the site map, add text, or erase marks. Use the tools to change color, size, or switch modes. Press save to downloads when you are done with your marks.</p>
+    
+    <div id="tools">
+        <button onclick="changeColor('black')">Black</button>
+        <button onclick="changeColor('red')">Red</button>
+        <button onclick="changeColor('blue')">Blue</button>
+        <button onclick="changeColor('green')">Green</button>
+        <button onclick="highlighterMode()">Highlighter (Yellow)</button>
+        <button onclick="eraserMode()">Eraser</button>
+        <button onclick="textMode()">Text</button>
+        
+        <select id="size" onchange="changeSize(this.value)">
+            <option value="2">Small (2px)</option>
+            <option value="5" selected>Medium (5px)</option>
+            <option value="10">Large (10px)</option>
+        </select>
+        <select id="fontSize" onchange="changeFontSize(this.value)">
+            <option value="16">Small (16px)</option>
+            <option value="24" selected>Medium (24px)</option>
+            <option value="32">Large (32px)</option>
+        </select>
+        
+        <button onclick="saveImage()">Save to Downloads</button>
+    </div>
+    
+    <div id="canvas-container">
+        <img id="sitemap" src="https://i.imgur.com/vkHjd4r.jpeg" style="display: none;" alt="Site Map" crossorigin="anonymous">
+        <canvas id="canvas"></canvas>
+        <canvas id="annotationCanvas"></canvas>
+    </div>
+    
+    <input id="textInput" type="text" placeholder="Type text and press Enter">
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const annotationCanvas = document.getElementById('annotationCanvas');
+        const annotationCtx = annotationCanvas.getContext('2d');
+        const img = document.getElementById('sitemap');
+        const textInput = document.getElementById('textInput');
+        const canvasContainer = document.getElementById('canvas-container');
+        
+        let drawing = false;
+        let mode = 'draw';
+        let color = 'black';
+        let size = 5;
+        let fontSize = 24;
+        let alpha = 1;
+        let textPos = null;
+        const eraserSize = 20;
+        let points = [];
+
+        // Load the site map image
+        img.onload = function() {
+            const maxWidth = window.innerWidth * 0.9;
+            const maxHeight = window.innerHeight * 0.8;
+            const imgRatio = img.width / img.height;
+            let canvasWidth = maxWidth;
+            let canvasHeight = maxWidth / imgRatio;
+
+            if (canvasHeight > maxHeight) {
+                canvasHeight = maxHeight;
+                canvasWidth = maxHeight * imgRatio;
+            }
+
+            // Set container size to match canvas
+            canvasContainer.style.width = `${canvasWidth}px`;
+            canvasContainer.style.height = `${canvasHeight}px`;
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            annotationCanvas.width = canvasWidth;
+            annotationCanvas.height = canvasHeight;
+            ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+        };
+
+        // Handle image load errors
+        img.onerror = function() {
+            console.error("Failed to load image. Ensure the image URL is correct and accessible.");
+            alert("Failed to load the site map image. Please check the image URL or host it locally.");
+        };
+
+        // Tool functions
+        function changeColor(newColor) {
+            mode = 'draw';
+            color = newColor;
+            alpha = 1;
+            textInput.style.display = 'none';
+            annotationCanvas.classList.remove('eraser-cursor');
+            annotationCanvas.style.cursor = 'crosshair';
+        }
+
+        function changeSize(newSize) {
+            size = parseInt(newSize);
+        }
+
+        function changeFontSize(newSize) {
+            fontSize = parseInt(newSize);
+        }
+
+        function highlighterMode() {
+            mode = 'draw';
+            color = 'yellow';
+            alpha = 0.5;
+            textInput.style.display = 'none';
+            annotationCanvas.classList.remove('eraser-cursor');
+            annotationCanvas.style.cursor = 'crosshair';
+        }
+
+        function eraserMode() {
+            mode = 'eraser';
+            textInput.style.display = 'none';
+            annotationCanvas.classList.add('eraser-cursor');
+        }
+
+        function textMode() {
+            mode = 'text';
+            annotationCanvas.classList.remove('eraser-cursor');
+            annotationCanvas.style.cursor = 'text';
+        }
+
+        // Smooth drawing function
+        function drawSmoothLine(x, y) {
+            points.push({ x, y });
+            if (points.length < 3) return;
+            if (points.length > 3) points.shift();
+
+            const avgPoint = points.reduce((acc, p) => ({
+                x: acc.x + p.x / points.length,
+                y: acc.y + p.y / points.length
+            }), { x: 0, y: 0 });
+
+            annotationCtx.lineWidth = mode === 'eraser' ? eraserSize : size;
+            annotationCtx.lineCap = 'round';
+            annotationCtx.lineJoin = 'round';
+
+            if (mode === 'eraser') {
+                annotationCtx.clearRect(avgPoint.x - eraserSize / 2, avgPoint.y - eraserSize / 2, eraserSize, eraserSize);
+            } else {
+                annotationCtx.strokeStyle = color;
+                annotationCtx.globalAlpha = alpha;
+                annotationCtx.lineTo(avgPoint.x, avgPoint.y);
+                annotationCtx.stroke();
+                annotationCtx.beginPath();
+                annotationCtx.moveTo(avgPoint.x, avgPoint.y);
+            }
+        }
+
+        // Drawing and erasing
+        annotationCanvas.addEventListener('mousedown', (e) => {
+            const rect = annotationCanvas.getBoundingClientRect();
+            const scaleX = annotationCanvas.width / rect.width;
+            const scaleY = annotationCanvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            if (mode === 'text') {
+                textPos = { x, y };
+                textInput.style.left = `${e.clientX}px`;
+                textInput.style.top = `${e.clientY}px`;
+                textInput.style.display = 'block';
+                textInput.focus();
+                return;
+            }
+
+            drawing = true;
+            points = [];
+            annotationCtx.beginPath();
+            annotationCtx.moveTo(x, y);
+        });
+
+        annotationCanvas.addEventListener('mouseup', () => {
+            drawing = false;
+            points = [];
+        });
+
+        annotationCanvas.addEventListener('mouseleave', () => {
+            drawing = false;
+            points = [];
+        });
+
+        annotationCanvas.addEventListener('mousemove', (e) => {
+            if (!drawing || mode === 'text') return;
+            const rect = annotationCanvas.getBoundingClientRect();
+            const scaleX = annotationCanvas.width / rect.width;
+            const scaleY = annotationCanvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+            drawSmoothLine(x, y);
+        });
+
+        // Text input handling
+        textInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && textPos) {
+                annotationCtx.font = `${fontSize}px Arial`;
+                annotationCtx.fillStyle = color;
+                annotationCtx.globalAlpha = alpha;
+                annotationCtx.fillText(textInput.value, textPos.x, textPos.y);
+                textInput.value = '';
+                textInput.style.display = 'none';
+                textPos = null;
+                annotationCanvas.style.cursor = 'text';
+            }
+        });
+
+        // Save function
+        function saveImage() {
+            textInput.style.display = 'none';
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = canvas.width;
+            tempCanvas.height = canvas.height;
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCtx.drawImage(canvas, 0, 0);
+            tempCtx.drawImage(annotationCanvas, 0, 0);
+            const dataURL = tempCanvas.toDataURL('image/png');
+            const a = document.createElement('a');
+            a.href = dataURL;
+            a.download = 'marked_sitemap.png';
+            a.click();
+        }
+    </script>
+</body>
+</html>
